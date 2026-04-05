@@ -13,7 +13,7 @@ claude CLI ──POST /v1/messages──▶ LiteLLM :11434 ──POST /v1/chat/c
             (Anthropic shape)       (translator)         (OpenAI shape)         (strips tool_calls:[])
 ```
 
-The `sse-sanitizer` strips `tool_calls: []` from streaming chunks to work around a LiteLLM bug (see TODO-LITELLM-ISSUE) that drops text content when that field is present but empty.
+The `sse-sanitizer` strips `tool_calls: []` from streaming chunks to work around a LiteLLM bug ([BerriAI/litellm#25172](https://github.com/BerriAI/litellm/issues/25172)) that drops text content when that field is present but empty.
 
 ## Install
 
