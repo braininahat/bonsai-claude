@@ -21,6 +21,7 @@ Claude Code request via the LiteLLM config.
 """
 
 from __future__ import annotations
+import json
 import os
 import signal
 import subprocess
@@ -28,6 +29,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -41,6 +43,7 @@ SANITIZER_PORT = 8081  # strips tool_calls:[] from SSE chunks (LiteLLM bug worka
 PROXY_PORT = 11434     # LiteLLM /v1/messages endpoint for Claude Code
 PYTHON_VER = "3.12"
 MIN_CONTEXT_WARN = 65536   # Ollama-docs recommended ≥64k for Claude Code
+PREFS_PATH = Path.home() / ".mlx_claude" / "prefs.json"
 
 # Prebuilt PrismML-fork MLX wheel for the Bonsai 1-bit profile.
 # Fetched lazily the first time a profile needs it.
@@ -293,6 +296,42 @@ def pick_context_size(default: int) -> int:
     return int(raw)
 
 
+def load_project_prefs() -> dict | None:
+    """Return {profile, max_kv_size, bare} for the current CWD, or None."""
+    if not PREFS_PATH.is_file():
+        return None
+    try:
+        data = json.loads(PREFS_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    if data.get("version") != 1:
+        return None
+    return data.get("projects", {}).get(str(Path.cwd().resolve()))
+
+
+def save_project_prefs(profile_alias: str, max_kv_size: int, bare: bool) -> None:
+    """Merge current CWD's prefs into the file. Silent on any IO error."""
+    key = str(Path.cwd().resolve())
+    try:
+        data = (json.loads(PREFS_PATH.read_text())
+                if PREFS_PATH.is_file() else {"version": 1, "projects": {}})
+        if data.get("version") != 1:
+            data = {"version": 1, "projects": {}}
+    except (json.JSONDecodeError, OSError):
+        data = {"version": 1, "projects": {}}
+    data.setdefault("projects", {})[key] = {
+        "profile": profile_alias,
+        "max_kv_size": max_kv_size,
+        "bare": bare,
+        "last_used": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    try:
+        PREFS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PREFS_PATH.write_text(json.dumps(data, indent=2))
+    except OSError:
+        pass
+
+
 def run_smoke(choice: Profile) -> int:
     """Headless e2e test: hit /v1/messages non-stream + stream, assert valid."""
     url = f"http://127.0.0.1:{PROXY_PORT}/v1/messages"
@@ -389,27 +428,41 @@ def main() -> int:
             aliases = ", ".join(p.alias for p in PROFILES)
             die(f"profile {args.profile!r} not found. available: {aliases}")
     else:
+        prefs = load_project_prefs()
+        if prefs is not None:
+            console.print(
+                f"[dim]  prefs: {prefs.get('profile')} / "
+                f"{prefs.get('max_kv_size')} / bare={prefs.get('bare')} "
+                f"(last used {prefs.get('last_used', '?')})[/]"
+            )
+        default_profile = next(
+            (p for p in PROFILES if prefs and p.alias == prefs.get("profile")), None,
+        )
         choice = questionary.select(
             "Pick an MLX model for Claude Code:",
             choices=[questionary.Choice(title=p.label, value=p) for p in PROFILES],
+            default=default_profile,
         ).ask()
         if choice is None:
             return 0
         # Second prompt: context-window override (skipped for --profile/--smoke).
-        kv = pick_context_size(choice.max_kv_size)
+        default_kv = prefs.get("max_kv_size") if prefs else choice.max_kv_size
+        kv = pick_context_size(default_kv)
         if kv != choice.max_kv_size:
             choice = replace(choice, max_kv_size=kv)
         # Third prompt: --bare mode. Strongly recommended for non-Anthropic
         # backends — skips CLAUDE.md auto-discovery, hooks, plugin sync, MCP
         # discovery, auto-memory. Without it Claude Code slams the full
         # context into turn 1 and you wait minutes for prefill.
+        bare_default = prefs.get("bare") if prefs else True
         bare_ans = questionary.confirm(
             "Launch with --bare? (skips CLAUDE.md/hooks/plugins/MCP autoloading — huge prefill win)",
-            default=True,
+            default=bool(bare_default),
         ).ask()
         if bare_ans is None:
             return 0
         use_bare = bool(bare_ans)
+        save_project_prefs(choice.alias, choice.max_kv_size, use_bare)
 
     check_prereqs(choice)
     cfg = write_litellm_config(choice)
