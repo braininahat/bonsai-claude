@@ -27,7 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import httpx
@@ -253,6 +253,43 @@ def print_sampling_status(p: Profile) -> None:
         )
 
 
+_CONTEXT_CHOICES: list[tuple[str, int | str]] = [
+    ("4k  (4096)",   4096),
+    ("16k (16384)",  16384),
+    ("32k (32768)",  32768),
+    ("65k (65536)  — default / Claude Code recommended", 65536),
+    ("128k (131072)", 131072),
+    ("custom ...",   "custom"),
+]
+
+
+def pick_context_size(default: int) -> int:
+    """Second interactive prompt: override profile's max_kv_size. Returns
+    the picked integer (falls back to `default` if the user aborts)."""
+    default_label = next(
+        (lbl for lbl, v in _CONTEXT_CHOICES if v == default), None,
+    )
+    picked = questionary.select(
+        "Context window (max_kv_size):",
+        choices=[
+            questionary.Choice(title=lbl, value=v) for lbl, v in _CONTEXT_CHOICES
+        ],
+        default=default_label,
+    ).ask()
+    if picked is None:      # Ctrl-C
+        return default
+    if picked != "custom":  # preset selected
+        return int(picked)
+    raw = questionary.text(
+        "Enter context size (tokens):",
+        default=str(default),
+        validate=lambda s: s.isdigit() and int(s) > 0 or "positive integer, please",
+    ).ask()
+    if raw is None or not raw.isdigit():
+        return default
+    return int(raw)
+
+
 def run_smoke(choice: Profile) -> int:
     """Headless e2e test: hit /v1/messages non-stream + stream, assert valid."""
     url = f"http://127.0.0.1:{PROXY_PORT}/v1/messages"
@@ -354,6 +391,10 @@ def main() -> int:
         ).ask()
         if choice is None:
             return 0
+        # Second prompt: context-window override (skipped for --profile/--smoke).
+        kv = pick_context_size(choice.max_kv_size)
+        if kv != choice.max_kv_size:
+            choice = replace(choice, max_kv_size=kv)
 
     check_prereqs(choice)
     cfg = write_litellm_config(choice)
