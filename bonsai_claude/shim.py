@@ -1,19 +1,9 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#   "fastapi>=0.110",
-#   "uvicorn[standard]>=0.29",
-#   "httpx>=0.27",
-# ]
-# ///
-"""anthropic_shim.py — Direct Anthropic Messages API <-> OpenAI Chat
-Completions adapter. Replaces LiteLLM + sse_sanitizer in the stack.
+"""bonsai_claude.shim — Direct Anthropic Messages API <-> OpenAI Chat
+Completions adapter. Run as: `python -m bonsai_claude.shim`.
 
 Ported from ollama/anthropic/anthropic.go (MIT license, attribution in
 NOTICE). Adapted from Ollama's internal api.ChatRequest/Response to
-OpenAI chat/completions shape so it can sit in front of mlx_lm.server
-and mlx_vlm.server.
+OpenAI chat/completions shape so it can sit in front of mlx_lm.server.
 
 Env:
   BACKEND_URL  (default http://127.0.0.1:8080)

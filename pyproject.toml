@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bonsai-claude"
+version = "0.1.0"
+description = "Run Claude Code locally on the Bonsai 8B 1-bit MLX model."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [{ name = "Varun", email = "braininahat@users.noreply.github.com" }]
+keywords = [
+    "claude-code", "anthropic", "mlx", "bonsai", "llm",
+    "apple-silicon", "quantization", "local-llm",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "questionary>=2.0",
+    "rich>=13.0",
+    "httpx>=0.27",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.scripts]
+bonsai-claude = "bonsai_claude.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/braininahat/mlx-claude"
+Repository = "https://github.com/braininahat/mlx-claude"
+Issues = "https://github.com/braininahat/mlx-claude/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bonsai_claude"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "bonsai_claude/",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+]
