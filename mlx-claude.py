@@ -332,6 +332,52 @@ def save_project_prefs(profile_alias: str, max_kv_size: int, bare: bool) -> None
         pass
 
 
+def _iterm_spawn_window(cmd: str, title: str) -> bool:
+    """Open a new iTerm2 window and run `cmd`. Returns True on success."""
+    # AppleScript uses " as string delimiter — escape any " or \ in cmd.
+    safe_cmd = cmd.replace("\\", "\\\\").replace('"', '\\"')
+    safe_title = title.replace("\\", "\\\\").replace('"', '\\"')
+    script = (
+        'tell application "iTerm2"\n'
+        "  activate\n"
+        "  set newWin to (create window with default profile)\n"
+        "  tell current session of newWin\n"
+        f'    set name to "{safe_title}"\n'
+        f'    write text "{safe_cmd}"\n'
+        "  end tell\n"
+        "end tell\n"
+    )
+    r = subprocess.run(
+        ["osascript", "-e", script],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
+    return r.returncode == 0
+
+
+def open_aux_panes(mlx_log: Path) -> None:
+    """Spawn iTerm2 windows tailing the server log + macmon GPU monitor."""
+    from shutil import which
+    term = os.environ.get("TERM_PROGRAM", "unset")
+    if term != "iTerm.app":
+        console.print(
+            f"[yellow]  --panes:[/] TERM_PROGRAM={term} (iTerm2 required), skipping"
+        )
+        return
+    if _iterm_spawn_window(f"tail -f {mlx_log}", "mlx-claude: server log"):
+        console.print(f"  [green]pane:[/] tailing {mlx_log}")
+    if which("macmon"):
+        if _iterm_spawn_window("macmon", "mlx-claude: GPU"):
+            console.print("  [green]pane:[/] macmon")
+    elif which("asitop"):
+        if _iterm_spawn_window("sudo asitop", "mlx-claude: GPU"):
+            console.print("  [green]pane:[/] asitop (needs sudo)")
+    else:
+        console.print(
+            "[yellow]  --panes:[/] no GPU monitor on PATH "
+            "(install: brew install vladkens/tap/macmon)"
+        )
+
+
 def run_smoke(choice: Profile) -> int:
     """Headless e2e test: hit /v1/messages non-stream + stream, assert valid."""
     url = f"http://127.0.0.1:{PROXY_PORT}/v1/messages"
@@ -417,6 +463,10 @@ def main() -> int:
     )
     parser.add_argument(
         "--profile", help="select profile by alias (skips the menu)",
+    )
+    parser.add_argument(
+        "--panes", action="store_true",
+        help="open iTerm2 windows tailing the server log + macmon GPU monitor",
     )
     args, claude_args = parser.parse_known_args()
 
@@ -510,6 +560,9 @@ def main() -> int:
 
         if args.smoke:
             return run_smoke(choice)
+
+        if args.panes:
+            open_aux_panes(mlx_log)
 
         env = os.environ.copy()
         env["ANTHROPIC_AUTH_TOKEN"] = "dummy"
